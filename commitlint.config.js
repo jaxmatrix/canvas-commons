@@ -7,7 +7,6 @@ module.exports = {
       'always',
       [
         '2d',
-        'cli',
         'core',
         'create',
         'deps',

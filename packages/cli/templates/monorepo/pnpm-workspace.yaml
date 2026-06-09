@@ -1,5 +1,0 @@
-packages:
-  - 'projects/*'
-
-allowBuilds:
-  ffmpeg-ffprobe-static: true
