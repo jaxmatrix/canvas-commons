@@ -95,13 +95,34 @@ export function getPackageManager() {
 
 export function cloneVersions(versions) {
   for (const dependency in versions) {
-    if (
-      dependency.startsWith('@canvas-commons') &&
-      MANIFEST.devDependencies[dependency]
-    ) {
-      versions[dependency] = MANIFEST.devDependencies[dependency];
+    if (dependency.startsWith('@canvas-commons')) {
+      versions[dependency] = resolveVersion(
+        MANIFEST.devDependencies[dependency],
+      );
     }
   }
+}
+
+/**
+ * Turn a CLI dependency specifier into one a standalone project can install.
+ *
+ * Published builds carry concrete ranges (e.g. `^0.3.1`). When running from
+ * source the specifiers are still `workspace:`/`link:` protocols, which only
+ * resolve inside this repo; fall back to the CLI's own version, which tracks the
+ * other `@canvas-commons/*` packages via the changeset fixed group.
+ *
+ * @param {string | undefined} version - The specifier from the CLI's manifest.
+ * @returns {string} An installable semver range.
+ */
+function resolveVersion(version) {
+  if (
+    !version ||
+    version.startsWith('workspace:') ||
+    version.startsWith('link:')
+  ) {
+    return `^${MANIFEST.version}`;
+  }
+  return version;
 }
 
 /**
