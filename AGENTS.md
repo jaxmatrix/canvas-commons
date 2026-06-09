@@ -16,6 +16,7 @@ created to provide continued maintenance and features.
 This is a `pnpm` monorepo containing the following packages:
 
 - `2d` - Built-in 2D nodes and utilities
+- `cli` - Monorepo, project, and scene scaffolding CLI
 - `core` - Core animation timing and data logic
 - `create` - Project bootstrapping utility
 - `docs` - Documentation website
@@ -127,6 +128,7 @@ Available types are:
 Available scopes are:
 
 - `2d`
+- `cli`
 - `core`
 - `create`
 - `deps-dev`
@@ -193,6 +195,7 @@ short usage examples. Read the one for the package you're touching:
 - [`packages/player/AGENTS.md`](packages/player/AGENTS.md)
 - [`packages/ffmpeg/AGENTS.md`](packages/ffmpeg/AGENTS.md)
 - [`packages/create/AGENTS.md`](packages/create/AGENTS.md)
+- [`packages/cli/AGENTS.md`](packages/cli/AGENTS.md)
 - [`packages/template/AGENTS.md`](packages/template/AGENTS.md)
 - [`packages/examples/AGENTS.md`](packages/examples/AGENTS.md)
 - [`packages/docs/AGENTS.md`](packages/docs/AGENTS.md)

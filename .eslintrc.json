@@ -7,7 +7,8 @@
     "**/*.js",
     "**/*.d.ts",
     "packages/template",
-    "packages/create/template-*"
+    "packages/create/template-*",
+    "packages/cli/templates"
   ],
   "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
   "parser": "@typescript-eslint/parser",
