@@ -12,3 +12,5 @@ CHANGELOG.md
 /packages/*/build
 
 /packages/docs/src/generated
+
+/packages/cli/templates
