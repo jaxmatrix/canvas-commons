@@ -5,13 +5,16 @@ import {useReducedMotion} from '../../hooks';
 import {EditorPanel} from '../../signals';
 import {shake} from '../animations';
 import {
+  AccountTree,
   Bug,
   CanvasCommons,
+  Grid,
   HourglassBottom,
   Movie,
   School,
   Science,
   Settings,
+  Tune,
   Videocam,
 } from '../icons';
 import {Badge, Space, Tab, TabGroup, TabLink, Tabs} from '../tabs';
@@ -58,6 +61,15 @@ export function Navigation() {
         {tabs.map(({name, tabComponent: Component}) => (
           <Component tab={name} />
         ))}
+        <Tab title="Storyboard" id="storyboard-tab" tab={EditorPanel.Storyboard}>
+          <Grid />
+        </Tab>
+        <Tab title="Component Scene" id="component-scene-tab" tab={EditorPanel.ComponentScene}>
+          <AccountTree />
+        </Tab>
+        <Tab title="Compositor" id="compositor-tab" tab={EditorPanel.Compositor}>
+          <Tune />
+        </Tab>
         <Tab title="Thread Debugger" id="threads-tab" tab={EditorPanel.Threads}>
           <HourglassBottom />
         </Tab>
