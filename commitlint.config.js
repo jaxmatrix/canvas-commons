@@ -20,6 +20,7 @@ module.exports = {
         'legacy',
         'player',
         'vite-plugin',
+        'webcodecs',
       ],
     ],
   },

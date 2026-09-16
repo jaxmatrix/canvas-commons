@@ -2,6 +2,7 @@ import {
   BBox,
   ColorSignal,
   DependencyContext,
+  InterpolationFunction,
   PossibleColor,
   PossibleSpacing,
   PossibleVector2,
@@ -62,6 +63,12 @@ import {
 } from '../partials/ShaderConfig';
 import {useScene2D} from '../scenes/useScene2D';
 import {drawLine} from '../utils';
+import {
+  affectedLayouts,
+  invertPositions,
+  playInverted,
+  snapshotPositions,
+} from '../utils/layoutFlip';
 import type {ComponentChild, ComponentChildren, NodeConstructor} from './types';
 import type {View2D} from './View2D';
 
@@ -979,6 +986,92 @@ export class Node implements Promisable<Node> {
   }
 
   /**
+   * Move this node into a new parent while tweening its world position from
+   * the old slot to the new one. Old and new siblings reflow smoothly.
+   *
+   * @param newParent - The destination parent.
+   * @param indexOrDuration - Slot index to insert at, or the duration when
+   *   the index is omitted.
+   * @param durationOrTiming - Duration when an index was given, otherwise the
+   *   timing function.
+   * @param timing - Easing function.
+   * @param interpolation - Vector lerp.
+   */
+  @threadable()
+  public *transitionTo(
+    newParent: Node,
+    indexOrDuration: number,
+    durationOrTiming?: number | TimingFunction,
+    timing: TimingFunction = easeInOutCubic,
+    interpolation: InterpolationFunction<Vector2> = Vector2.lerp,
+  ): ThreadGenerator {
+    let index: number;
+    let duration: number;
+    let actualTiming: TimingFunction;
+    if (typeof durationOrTiming === 'number') {
+      index = indexOrDuration;
+      duration = durationOrTiming;
+      actualTiming = timing;
+    } else {
+      index = Infinity;
+      duration = indexOrDuration;
+      actualTiming = durationOrTiming ?? timing;
+    }
+
+    const oldParent = this.parent();
+    const startWorld = this.position.abs();
+
+    const siblings = (
+      oldParent
+        ? affectedLayouts(this, oldParent, newParent)
+        : affectedLayouts(this, newParent)
+    ).filter(n => n !== this);
+    const pre = snapshotPositions(siblings);
+
+    this.reparent(newParent);
+    if (Number.isFinite(index)) {
+      newParent.insert(this, index);
+    }
+
+    const targetWorld = this.position.abs();
+    this.position.abs(startWorld);
+    const post = snapshotPositions(siblings);
+    const inverted = invertPositions(pre, post);
+
+    yield* all(
+      this.position.abs(targetWorld, duration, actualTiming, interpolation),
+      playInverted(inverted, duration, actualTiming, interpolation),
+    );
+  }
+
+  /**
+   * Cross-fade this node into another by tweening its world position toward
+   * the other's and fading opacity. Unlike {@link transitionTo}, the source
+   * and destination are different nodes that briefly coexist.
+   */
+  @threadable()
+  public *morphTo(
+    other: Node,
+    duration: number,
+    timing: TimingFunction = easeInOutCubic,
+    interpolation: InterpolationFunction<Vector2> = Vector2.lerp,
+  ): ThreadGenerator {
+    const otherStartOpacity = other.opacity();
+    other.opacity(0);
+
+    const targetWorld = other.position.abs();
+    try {
+      yield* all(
+        this.position.abs(targetWorld, duration, timing, interpolation),
+        this.opacity(0, duration, timing),
+        other.opacity(otherStartOpacity, duration, timing),
+      );
+    } finally {
+      this.remove();
+    }
+  }
+
+  /**
    * Remove all children of this node.
    */
   public removeChildren(): this {
@@ -1161,6 +1254,13 @@ export class Node implements Promisable<Node> {
   }
 
   /**
+   * Whether this node has already been disposed of.
+   */
+  protected get isDisposed(): boolean {
+    return !this.unregister;
+  }
+
+  /**
    * Prepare this node to be disposed of.
    *
    * @remarks
@@ -1171,7 +1271,7 @@ export class Node implements Promisable<Node> {
    * node to be garbage collected.
    */
   public dispose() {
-    if (!this.unregister) {
+    if (this.isDisposed) {
       return;
     }
 

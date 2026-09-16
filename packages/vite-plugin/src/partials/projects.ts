@@ -78,7 +78,7 @@ import {MetaFile} from '@canvas-commons/core';
     config(config) {
       return {
         build: {
-          target: buildForEditor ? 'esnext' : 'es2020',
+          target: buildForEditor ? 'esnext' : 'es2022',
           assetsDir: './',
           rollupOptions: {
             preserveEntrySignatures: 'strict',
@@ -106,12 +106,17 @@ import {MetaFile} from '@canvas-commons/core';
         },
         optimizeDeps: {
           entries: projects.map(project => project.filePath),
-          // Pure-CommonJS deps of the excluded @canvas-commons/2d that have no
-          // ESM entry: served raw they break import interop. The `2d >` prefix
-          // resolves them relative to 2d, which isn't a direct consumer
-          // dependency. The mathjax entries mirror the imports in
-          // packages/2d/src/lib/components/Latex.ts.
+          // Deps of the excluded @canvas-commons/2d that vite would otherwise
+          // discover lazily mid-session and re-optimize, forcing a full page
+          // reload. The `2d >` prefix resolves them relative to 2d, which
+          // isn't a direct consumer dependency. The mathjax entries mirror
+          // the imports in packages/2d/src/lib/components/Latex.ts; mathjax
+          // and parse-svg-path are additionally pure-CommonJS with no ESM
+          // entry, so served raw they break import interop.
           include: [
+            '@canvas-commons/core > chroma-js',
+            '@canvas-commons/2d > @chenglou/pretext',
+            '@canvas-commons/2d > @chenglou/pretext/rich-inline',
             '@canvas-commons/2d > mathjax-full/js/adaptors/liteAdaptor.js',
             '@canvas-commons/2d > mathjax-full/js/handlers/html.js',
             '@canvas-commons/2d > mathjax-full/js/input/tex.js',
@@ -120,6 +125,12 @@ import {MetaFile} from '@canvas-commons/core';
             '@canvas-commons/2d > mathjax-full/js/output/svg.js',
             '@canvas-commons/2d > mathjax-full/js/util/Options.js',
             '@canvas-commons/2d > parse-svg-path',
+            '@canvas-commons/2d > yoga-layout',
+            '@canvas-commons/2d > @codemirror/language',
+            '@canvas-commons/2d > @lezer/common',
+            '@canvas-commons/2d > @lezer/highlight',
+            '@canvas-commons/2d > escape-string-regexp',
+            '@canvas-commons/2d > roughjs',
           ],
           exclude: [
             '@canvas-commons/2d',

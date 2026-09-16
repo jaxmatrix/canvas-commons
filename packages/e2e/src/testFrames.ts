@@ -20,9 +20,19 @@ export const testFrames: Record<string, TestFrame[]> = {
   tex: [
     {frame: 0, label: 'initial'},
     {frame: 60, label: 'morph-add'},
+    {frame: 89, label: 'morph-resolve'},
+    {frame: 90, label: 'morph-resolved'},
     {frame: 240, label: 'morph-rearrange'},
     {frame: 420, label: 'morph-return'},
     {frame: -1, label: 'final'},
+  ],
+  'tex-fragments': [
+    {frame: 0, label: 'initial'},
+    {frame: 48, label: 'morph-glyphs'},
+    {frame: 126, label: 'fade-fragment'},
+    {frame: 204, label: 'edit'},
+    {frame: 282, label: 'replace'},
+    {frame: -1, label: 'debug-fragments'},
   ],
   'tweening-linear': [
     {frame: 0, label: 'initial'},
@@ -91,6 +101,16 @@ export const testFrames: Record<string, TestFrame[]> = {
     {frame: 30, label: 'mid'},
     {frame: -1, label: 'final'},
   ],
+  'layout-animations': [
+    {frame: 0, label: 'initial'},
+    {frame: 18, label: 'insert'},
+    {frame: 132, label: 'after-remove'},
+    {frame: 252, label: 'wrap-row'},
+    {frame: 372, label: 'rotated-grow'},
+    {frame: 420, label: 'transition-out'},
+    {frame: 480, label: 'edit-layout-col'},
+    {frame: -1, label: 'final'},
+  ],
   positioning: [
     {frame: 0, label: 'initial'},
     {frame: 30, label: 'mid'},
@@ -139,6 +159,15 @@ export const testFrames: Record<string, TestFrame[]> = {
     {frame: 0, label: 'initial'},
     {frame: 120, label: 'saturated'},
     {frame: 240, label: 'contrasted'},
+    {frame: -1, label: 'final'},
+  ],
+  text: [
+    {frame: 0, label: 'initial'},
+    {frame: -1, label: 'final'},
+  ],
+  'text-path': [
+    {frame: 0, label: 'initial'},
+    {frame: 60, label: 'mid'},
     {frame: -1, label: 'final'},
   ],
 };

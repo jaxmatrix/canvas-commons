@@ -10,17 +10,21 @@ import {
   Signal,
   SignalValue,
   SimpleSignal,
+  Spacing,
   SpacingSignal,
   ThreadGenerator,
   TimingFunction,
   Vector2,
   Vector2Signal,
+  all,
   boolLerp,
   deepLerp,
+  easeInOutCubic,
   modify,
   originToOffset,
   threadable,
   tween,
+  unwrap,
 } from '@canvas-commons/core';
 import {
   Vector2LengthSignal,
@@ -50,14 +54,59 @@ import {
   LayoutMode,
   Length,
   LengthLimit,
+  TextAlign,
   TextWrap,
+  VerticalAlign,
+  WordBreak,
 } from '../partials';
+import {buildCanvasFontString, resolveLineHeight} from '../text';
 import {drawLine, drawPivot, is} from '../utils';
+import {
+  affectedLayouts,
+  invertPositions,
+  playInverted,
+  snapshotPositions,
+} from '../utils/layoutFlip';
+import {
+  PositionType,
+  createYogaNode,
+  setYogaDimension,
+  setYogaFlexBasis,
+  setYogaGap,
+  setYogaSpacing,
+  toYogaAlignContent,
+  toYogaAlignItems,
+  toYogaFlexDirection,
+  toYogaFlexWrap,
+  toYogaJustifyContent,
+  type YogaNode,
+} from '../utils/yoga';
+import {transitionTo as runTransitionTo} from './layout/transitionTo';
 import {Node, NodeProps} from './Node';
+import {ComponentChildren} from './types';
+
+/**
+ * Override the per-node entrance or exit animation used by
+ * {@link Layout.add}, {@link Layout.insert}, and {@link Layout.remove}.
+ */
+export type LayoutAnimateCallback = (
+  node: Layout,
+  duration: number,
+  timing: TimingFunction,
+) => ThreadGenerator;
 
 export interface LayoutProps extends NodeProps {
   layout?: LayoutMode;
-  tagName?: keyof HTMLElementTagNameMap;
+  /**
+   * Whether this node participates in its parent's flex layout. When
+   * `null` (the default), falls back to {@link layout}.
+   */
+  layoutSelf?: LayoutMode;
+  /**
+   * Whether this node lays out its own children with flex. When `null`
+   * (the default), falls back to {@link layout}.
+   */
+  layoutChildren?: LayoutMode;
 
   width?: SignalValue<Length>;
   height?: SignalValue<Length>;
@@ -101,12 +150,17 @@ export interface LayoutProps extends NodeProps {
   letterSpacing?: SignalValue<number>;
   textWrap?: SignalValue<TextWrap>;
   textDirection?: SignalValue<CanvasDirection>;
-  textAlign?: SignalValue<CanvasTextAlign>;
+  textAlign?: SignalValue<TextAlign>;
+  verticalAlign?: SignalValue<VerticalAlign>;
+  wordBreak?: SignalValue<WordBreak>;
 
   size?: SignalValue<PossibleVector2<Length>>;
   anchorX?: SignalValue<number>;
   anchorY?: SignalValue<number>;
   anchor?: SignalValue<PossibleVector2>;
+  translateX?: SignalValue<number>;
+  translateY?: SignalValue<number>;
+  translate?: SignalValue<PossibleVector2>;
   /**
    * The position of the center of this node.
    *
@@ -200,6 +254,24 @@ export class Layout extends Node {
   @signal()
   declare public readonly layout: SimpleSignal<LayoutMode, this>;
 
+  /**
+   * Whether this node participates in its parent's flex layout. Use
+   * {@link layoutEnabled} to read the resolved mode.
+   */
+  @initial(null)
+  @interpolation(boolLerp)
+  @signal()
+  declare public readonly layoutSelf: SimpleSignal<LayoutMode, this>;
+
+  /**
+   * Whether this node lays out its own children with flex. Use
+   * {@link canLayoutChildren} to read the resolved mode.
+   */
+  @initial(null)
+  @interpolation(boolLerp)
+  @signal()
+  declare public readonly layoutChildren: SimpleSignal<LayoutMode, this>;
+
   @initial(null)
   @signal()
   declare public readonly maxWidth: SimpleSignal<LengthLimit, this>;
@@ -279,7 +351,7 @@ export class Layout extends Node {
   @signal()
   declare public readonly letterSpacing: SimpleSignal<number, this>;
 
-  @defaultStyle(false)
+  @defaultStyle(true)
   @signal()
   declare public readonly textWrap: SimpleSignal<TextWrap, this>;
   @initial('ltr')
@@ -287,7 +359,13 @@ export class Layout extends Node {
   declare public readonly textDirection: SimpleSignal<CanvasDirection, this>;
   @defaultStyle('start')
   @signal()
-  declare public readonly textAlign: SimpleSignal<CanvasTextAlign, this>;
+  declare public readonly textAlign: SimpleSignal<TextAlign, this>;
+  @defaultStyle('top')
+  @signal()
+  declare public readonly verticalAlign: SimpleSignal<VerticalAlign, this>;
+  @defaultStyle('normal')
+  @signal()
+  declare public readonly wordBreak: SimpleSignal<WordBreak, this>;
 
   protected getX(): number {
     if (this.isLayoutRoot()) {
@@ -402,12 +480,12 @@ export class Layout extends Node {
     }
 
     this.size.x(from);
-    lock && this.lockSize();
+    lock && this.lockLayout();
     yield* tween(time, value =>
       this.size.x(interpolationFunction(from, to, timingFunction(value))),
     );
     this.size.x(value);
-    lock && this.releaseSize();
+    lock && this.releaseLayout();
   }
 
   protected getHeight(): number {
@@ -443,12 +521,12 @@ export class Layout extends Node {
     }
 
     this.size.y(from);
-    lock && this.lockSize();
+    lock && this.lockLayout();
     yield* tween(time, value =>
       this.size.y(interpolationFunction(from, to, timingFunction(value))),
     );
     this.size.y(value);
-    lock && this.releaseSize();
+    lock && this.releaseLayout();
   }
 
   /**
@@ -494,12 +572,62 @@ export class Layout extends Node {
     }
 
     this.size(from);
-    this.lockSize();
+    this.lockLayout();
     yield* tween(time, value =>
       this.size(interpolationFunction(from, to, timingFunction(value))),
     );
-    this.releaseSize();
+    this.releaseLayout();
     this.size(value);
+  }
+
+  @threadable()
+  protected *tweenPadding(
+    value: SignalValue<PossibleSpacing>,
+    time: number,
+    timingFunction: TimingFunction,
+    interpolationFunction: InterpolationFunction<Spacing>,
+  ): ThreadGenerator {
+    const from = this.padding();
+    this.lockLayout();
+    yield* tween(time, t => {
+      const target = this.padding.context.parse(unwrap(value));
+      this.padding(interpolationFunction(from, target, timingFunction(t)));
+    });
+    this.releaseLayout();
+  }
+
+  @threadable()
+  protected *tweenMargin(
+    value: SignalValue<PossibleSpacing>,
+    time: number,
+    timingFunction: TimingFunction,
+    interpolationFunction: InterpolationFunction<Spacing>,
+  ): ThreadGenerator {
+    const from = this.margin();
+    this.lockLayout();
+    yield* tween(time, t => {
+      const target = this.margin.context.parse(unwrap(value));
+      this.margin(interpolationFunction(from, target, timingFunction(t)));
+    });
+    this.releaseLayout();
+  }
+
+  @threadable()
+  protected *tweenGap(
+    value: SignalValue<PossibleVector2<Length>>,
+    time: number,
+    timingFunction: TimingFunction,
+    interpolationFunction: InterpolationFunction<Vector2>,
+  ): ThreadGenerator {
+    const from = this.gap();
+    this.lockLayout();
+    yield* tween(time, t => {
+      const target = this.gap.context.parse(unwrap(value));
+      this.gap(
+        interpolationFunction(from, target as Vector2, timingFunction(t)),
+      );
+    });
+    this.releaseLayout();
   }
 
   /**
@@ -519,6 +647,14 @@ export class Layout extends Node {
    */
   @vector2Signal('anchor')
   declare public readonly anchor: Vector2Signal<this>;
+
+  /**
+   * A visual offset applied to this node's rendering, analogous to CSS
+   * `transform: translate()`. Does not affect layout.
+   */
+  @initial(Vector2.zero)
+  @vector2Signal('translate')
+  declare public readonly translate: Vector2Signal<this>;
 
   /**
    * The position of the center of this node.
@@ -669,24 +805,30 @@ export class Layout extends Node {
   @signal()
   declare public readonly clip: SimpleSignal<boolean, this>;
 
-  declare public element: HTMLElement;
-  declare public styles: CSSStyleDeclaration;
+  declare public yogaNode: YogaNode;
 
   @initial(0)
   @signal()
-  declare protected readonly sizeLockCounter: SimpleSignal<number, this>;
+  declare protected readonly layoutLockCounter: SimpleSignal<number, this>;
 
   public constructor(props: LayoutProps) {
     super(props);
-    this.element.dataset.canvasCommonsKey = this.key;
   }
 
-  public lockSize() {
-    this.sizeLockCounter(this.sizeLockCounter() + 1);
+  /**
+   * Increment the layout lock counter. While positive, this node's
+   * `flexGrow` / `flexShrink` are forced to `0`, holding its slot in the
+   * parent's flex layout. Pair every call with {@link releaseLayout}.
+   */
+  public lockLayout() {
+    this.layoutLockCounter(this.layoutLockCounter() + 1);
   }
 
-  public releaseSize() {
-    this.sizeLockCounter(this.sizeLockCounter() - 1);
+  /**
+   * Decrement the layout lock counter.
+   */
+  public releaseLayout() {
+    this.layoutLockCounter(this.layoutLockCounter() - 1);
   }
 
   @computed()
@@ -703,30 +845,59 @@ export class Layout extends Node {
   }
 
   /**
-   * Get the resolved layout mode of this node.
-   *
-   * @remarks
-   * When the mode is `null`, its value will be inherited from the parent.
-   *
-   * Use {@link layout} to get the raw mode set for this node (without
-   * inheritance).
+   * Whether this node participates in its parent's flex layout. Resolves
+   * {@link layoutSelf}, then {@link layout}, then the parent's
+   * {@link canLayoutChildren}.
    */
   @computed()
   public layoutEnabled(): boolean {
-    return this.layout() ?? this.parentTransform()?.layoutEnabled() ?? false;
+    return (
+      this.layoutSelf() ??
+      this.layout() ??
+      this.parentTransform()?.canLayoutChildren() ??
+      false
+    );
+  }
+
+  /**
+   * Whether this node lays out its own children with flex. Resolves
+   * {@link layoutChildren}, then {@link layout}, then the parent's
+   * {@link canLayoutChildren}.
+   *
+   * @remarks
+   * Overridden by `Txt` (and similar leaves) that must not host yoga children.
+   */
+  @computed()
+  public canLayoutChildren(): boolean {
+    return (
+      this.layoutChildren() ??
+      this.layout() ??
+      this.parentTransform()?.canLayoutChildren() ??
+      false
+    );
   }
 
   @computed()
   public isLayoutRoot(): boolean {
-    return !this.layoutEnabled() || !this.parentTransform()?.layoutEnabled();
+    // A parent that doesn't host yoga children (e.g. Txt) leaves this node
+    // detached from any yoga tree, so it must lay itself out as a root.
+    return (
+      !this.layoutEnabled() || !this.parentTransform()?.canLayoutChildren()
+    );
   }
 
   public override localToParent(): DOMMatrix {
     const matrix = super.localToParent();
+
+    const translate = this.translate();
+    if (!translate.exactlyEquals(Vector2.zero)) {
+      matrix.translateSelf(translate.x, translate.y);
+    }
+
     const offset = this.anchor();
     if (!offset.exactlyEquals(Vector2.zero)) {
-      const translate = this.size().mul(offset).scale(-0.5);
-      matrix.translateSelf(translate.x, translate.y);
+      const anchorTranslate = this.size().mul(offset).scale(-0.5);
+      matrix.translateSelf(anchorTranslate.x, anchorTranslate.y);
     }
 
     return matrix;
@@ -745,17 +916,23 @@ export class Layout extends Node {
     matrix.rotateSelf(0, 0, this.rotation());
     matrix.scaleSelf(this.scale.x(), this.scale.y());
 
+    const translate = this.translate();
+    if (!translate.exactlyEquals(Vector2.zero)) {
+      matrix.translateSelf(translate.x, translate.y);
+    }
+
     const offset = this.anchor();
     if (!offset.exactlyEquals(Vector2.zero)) {
-      const translate = this.size().mul(offset).scale(-0.5);
-      matrix.translateSelf(translate.x, translate.y);
+      const anchorTranslate = this.size().mul(offset).scale(-0.5);
+      matrix.translateSelf(anchorTranslate.x, anchorTranslate.y);
     }
 
     return matrix;
   }
 
   protected getComputedLayout(): BBox {
-    return new BBox(this.element.getBoundingClientRect());
+    const layout = this.yogaNode.getComputedLayout();
+    return new BBox(layout.left, layout.top, layout.width, layout.height);
   }
 
   @computed()
@@ -764,15 +941,16 @@ export class Layout extends Node {
     const box = this.getComputedLayout();
 
     const position = new Vector2(
-      box.x + (box.width / 2) * this.anchor.x(),
-      box.y + (box.height / 2) * this.anchor.y(),
+      box.x + box.width / 2 + (box.width / 2) * this.anchor.x(),
+      box.y + box.height / 2 + (box.height / 2) * this.anchor.y(),
     );
 
     const parent = this.parentTransform();
     if (parent) {
-      const parentRect = parent.getComputedLayout();
-      position.x -= parentRect.x + (parentRect.width - box.width) / 2;
-      position.y -= parentRect.y + (parentRect.height - box.height) / 2;
+      const parentBox = parent.getComputedLayout();
+      const parentLayout = parent.yogaNode.getComputedLayout();
+      position.x -= parentBox.x - parentLayout.left + parentBox.width / 2;
+      position.y -= parentBox.y - parentLayout.top + parentBox.height / 2;
     }
 
     return position;
@@ -790,22 +968,101 @@ export class Layout extends Node {
   @computed()
   protected requestLayoutUpdate() {
     const parent = this.parentTransform();
-    if (this.appendedToView()) {
+    if (this.isLayoutRoot()) {
       parent?.requestFontUpdate();
       this.updateLayout();
+      const {width, height} = this.resolveLayoutConstraint();
+      this.calculateRootLayout(width, height);
     } else {
-      parent!.requestLayoutUpdate();
+      parent?.requestLayoutUpdate();
     }
   }
 
-  @computed()
-  protected appendedToView() {
-    const root = this.isLayoutRoot();
-    if (root) {
-      this.view().element.append(this.element);
+  /**
+   * Run yoga layout for this root, resolving percent-sized children of
+   * auto-sized containers with a second pass when needed.
+   */
+  protected calculateRootLayout(
+    width: number | undefined,
+    height: number | undefined,
+  ) {
+    this.yogaNode.calculateLayout(width, height);
+    if (this.resolvePercentageDimensions()) {
+      this.yogaNode.calculateLayout(width, height);
     }
+  }
 
-    return root;
+  /**
+   * Resolve the `calculateLayout` constraint for this layout root.
+   *
+   * @remarks
+   * Definite dimensions pass straight through. Percent dimensions resolve to
+   * the parent's computed size — yoga then applies the node's own percent
+   * against that available space, so the percent is applied exactly once
+   * (a Rect with `width='50%'` under View2D gets half the view width), and
+   * stacked percent roots compose recursively through `computedSize`.
+   */
+  private resolveLayoutConstraint(): {
+    width: number | undefined;
+    height: number | undefined;
+  } {
+    const size = this.desiredSize();
+    return {
+      width: this.resolveDimensionConstraint(size.x, 'width'),
+      height: this.resolveDimensionConstraint(size.y, 'height'),
+    };
+  }
+
+  private resolveDimensionConstraint(
+    value: DesiredLength,
+    axis: 'width' | 'height',
+  ): number | undefined {
+    if (typeof value === 'number') return value;
+    if (typeof value !== 'string' || !value.endsWith('%')) return undefined;
+
+    const parent = this.parentTransform();
+    if (!parent) return undefined;
+    const parentSize = parent.computedSize();
+    const available = axis === 'width' ? parentSize.x : parentSize.y;
+    return isFinite(available) && available > 0 ? available : undefined;
+  }
+
+  private resolvePercentageDimensions(): boolean {
+    let resolved = false;
+    this.walkFlexTree((child, parent) => {
+      const size = child.desiredSize();
+      const parentLayout = parent.yogaNode.getComputedLayout();
+
+      if (typeof size.x === 'string' && size.x.endsWith('%')) {
+        const parentDesired = parent.desiredSize();
+        if (parentDesired.x === null) {
+          const percent = parseFloat(size.x);
+          child.yogaNode.setWidth((parentLayout.width * percent) / 100);
+          resolved = true;
+        }
+      }
+
+      if (typeof size.y === 'string' && size.y.endsWith('%')) {
+        const parentDesired = parent.desiredSize();
+        if (parentDesired.y === null) {
+          const percent = parseFloat(size.y);
+          child.yogaNode.setHeight((parentLayout.height * percent) / 100);
+          resolved = true;
+        }
+      }
+    });
+    return resolved;
+  }
+
+  private walkFlexTree(visitor: (child: Layout, parent: Layout) => void): void {
+    const walk = (parent: Layout) => {
+      if (!parent.canLayoutChildren()) return;
+      for (const child of parent.applyLayout()) {
+        visitor(child, parent);
+        walk(child);
+      }
+    };
+    walk(this);
   }
 
   /**
@@ -815,8 +1072,8 @@ export class Layout extends Node {
   protected updateLayout() {
     this.applyFont();
     this.applyFlex();
-    if (this.layoutEnabled()) {
-      const children = this.layoutChildren();
+    if (this.canLayoutChildren()) {
+      const children = this.applyLayout();
       for (const child of children) {
         child.updateLayout();
       }
@@ -824,22 +1081,30 @@ export class Layout extends Node {
   }
 
   @computed()
-  protected layoutChildren(): Layout[] {
+  protected applyLayout(): Layout[] {
     const queue = [...this.children()];
     const result: Layout[] = [];
-    const elements: HTMLElement[] = [];
     while (queue.length) {
       const child = queue.shift();
       if (child instanceof Layout) {
         if (child.layoutEnabled()) {
           result.push(child);
-          elements.push(child.element);
         }
       } else if (child) {
         queue.unshift(...child.children());
       }
     }
-    this.element.replaceChildren(...elements);
+
+    for (let i = this.yogaNode.getChildCount() - 1; i >= 0; i--) {
+      this.yogaNode.removeChild(this.yogaNode.getChild(i));
+    }
+    for (let i = 0; i < result.length; i++) {
+      const childNode = result[i].yogaNode;
+      // A reparented child still belongs to its previous owner's yoga node;
+      // yoga aborts on insert unless it is detached first.
+      childNode.getParent()?.removeChild(childNode);
+      this.yogaNode.insertChild(childNode, i);
+    }
 
     return result;
   }
@@ -849,9 +1114,23 @@ export class Layout extends Node {
    */
   @computed()
   protected requestFontUpdate() {
-    this.appendedToView();
     this.parentTransform()?.requestFontUpdate();
     this.applyFont();
+  }
+
+  @computed()
+  public canvasFont(): string {
+    return buildCanvasFontString(
+      this.fontStyle(),
+      this.fontWeight(),
+      this.fontSize(),
+      this.fontFamily(),
+    );
+  }
+
+  @computed()
+  public resolvedLineHeight(): number {
+    return resolveLineHeight(this.lineHeight(), this.fontSize());
   }
 
   protected override getCacheBBox(): BBox {
@@ -938,97 +1217,512 @@ export class Layout extends Node {
     this.position(this.position().add(newOffset).sub(oldOffset));
   }
 
-  protected parsePixels(value: number | null): string {
-    return value === null ? '' : `${value}px`;
-  }
-
-  protected parseLength(value: number | string | null): string {
-    if (value === null) {
-      return '';
-    }
-    if (typeof value === 'string') {
-      return value;
-    }
-    return `${value}px`;
-  }
-
   @computed()
   protected applyFlex() {
-    this.element.style.position = this.isLayoutRoot() ? 'absolute' : 'relative';
+    const node = this.yogaNode;
+
+    node.setPositionType(
+      this.isLayoutRoot() ? PositionType.Absolute : PositionType.Relative,
+    );
 
     const size = this.desiredSize();
-    this.element.style.width = this.parseLength(size.x);
-    this.element.style.height = this.parseLength(size.y);
-    this.element.style.maxWidth = this.parseLength(this.maxWidth());
-    this.element.style.minWidth = this.parseLength(this.minWidth());
-    this.element.style.maxHeight = this.parseLength(this.maxHeight());
-    this.element.style.minHeight = this.parseLength(this.minHeight()!);
-    this.element.style.aspectRatio =
-      this.ratio() === null ? '' : this.ratio()!.toString();
+    setYogaDimension(node, 'setWidth', size.x);
+    setYogaDimension(node, 'setHeight', size.y);
+    setYogaDimension(node, 'setMaxWidth', this.maxWidth());
+    setYogaDimension(node, 'setMinWidth', this.minWidth());
+    setYogaDimension(node, 'setMaxHeight', this.maxHeight());
+    setYogaDimension(node, 'setMinHeight', this.minHeight());
 
-    this.element.style.marginTop = this.parsePixels(this.margin.top());
-    this.element.style.marginBottom = this.parsePixels(this.margin.bottom());
-    this.element.style.marginLeft = this.parsePixels(this.margin.left());
-    this.element.style.marginRight = this.parsePixels(this.margin.right());
+    const ratio = this.ratio();
+    node.setAspectRatio(ratio ?? undefined);
 
-    this.element.style.paddingTop = this.parsePixels(this.padding.top());
-    this.element.style.paddingBottom = this.parsePixels(this.padding.bottom());
-    this.element.style.paddingLeft = this.parsePixels(this.padding.left());
-    this.element.style.paddingRight = this.parsePixels(this.padding.right());
+    setYogaSpacing(
+      node,
+      'Margin',
+      this.margin.top(),
+      this.margin.right(),
+      this.margin.bottom(),
+      this.margin.left(),
+    );
+    setYogaSpacing(
+      node,
+      'Padding',
+      this.padding.top(),
+      this.padding.right(),
+      this.padding.bottom(),
+      this.padding.left(),
+    );
 
-    this.element.style.flexDirection = this.direction();
-    this.element.style.flexBasis = this.parseLength(this.basis()!);
-    this.element.style.flexWrap = this.wrap();
+    node.setFlexDirection(toYogaFlexDirection(this.direction()));
+    setYogaFlexBasis(node, this.basis());
+    node.setFlexWrap(toYogaFlexWrap(this.wrap()));
 
-    this.element.style.justifyContent = this.justifyContent();
-    this.element.style.alignContent = this.alignContent();
-    this.element.style.alignItems = this.alignItems();
-    this.element.style.alignSelf = this.alignSelf();
-    this.element.style.columnGap = this.parseLength(this.gap.x());
-    this.element.style.rowGap = this.parseLength(this.gap.y());
+    const direction = this.direction();
+    const wrap = this.wrap();
+    node.setJustifyContent(
+      toYogaJustifyContent(this.justifyContent(), direction),
+    );
+    node.setAlignContent(toYogaAlignContent(this.alignContent(), wrap));
+    node.setAlignItems(toYogaAlignItems(this.alignItems(), wrap));
+    node.setAlignSelf(toYogaAlignItems(this.alignSelf(), wrap));
 
-    if (this.sizeLockCounter() > 0) {
-      this.element.style.flexGrow = '0';
-      this.element.style.flexShrink = '0';
+    setYogaGap(node, this.gap.x(), this.gap.y());
+
+    if (this.layoutLockCounter() > 0) {
+      node.setFlexGrow(0);
+      node.setFlexShrink(0);
     } else {
-      this.element.style.flexGrow = this.grow().toString();
-      this.element.style.flexShrink = this.shrink().toString();
+      node.setFlexGrow(this.grow());
+      node.setFlexShrink(this.shrink());
     }
   }
 
   @computed()
   protected applyFont() {
-    this.element.style.fontFamily = this.fontFamily();
-    this.element.style.fontSize = `${this.fontSize()}px`;
-    this.element.style.fontStyle = this.fontStyle();
+    // Dependency checkpoint: touching every font signal invalidates downstream
+    // measurement caches when any font property changes.
+    this.fontFamily();
+    this.fontSize();
+    this.fontStyle();
+    this.fontWeight();
+    this.lineHeight();
+    this.letterSpacing();
+    this.textWrap();
+    this.textAlign();
+    this.wordBreak();
+  }
 
-    const lineHeight = this.lineHeight();
-    this.element.style.lineHeight =
-      typeof lineHeight === 'number'
-        ? `${lineHeight}px`
-        : (parseFloat(lineHeight as string) / 100).toString();
+  /**
+   * Append a child. With a `duration`, the call returns a
+   * `ThreadGenerator` that scales the child into its slot while the
+   * surrounding flex layout reflows; without one, it behaves like
+   * {@link Node.add} and returns `this`.
+   */
+  public override add(node: ComponentChildren): this;
+  public override add(
+    node: ComponentChildren,
+    duration: number,
+    timing?: TimingFunction,
+    animate?: LayoutAnimateCallback,
+  ): ThreadGenerator;
+  public override add(
+    node: ComponentChildren,
+    duration?: number,
+    timing: TimingFunction = easeInOutCubic,
+    animate?: LayoutAnimateCallback,
+  ): this | ThreadGenerator {
+    if (duration === undefined) {
+      return super.add(node);
+    }
+    return this.animateInsert(node, Infinity, duration, timing, animate);
+  }
 
-    this.element.style.fontWeight = this.fontWeight().toString();
-    this.element.style.letterSpacing = `${this.letterSpacing()}px`;
-    this.element.style.textAlign = this.textAlign();
+  /**
+   * Insert a child at a specific index. With a `duration`, the call
+   * returns a `ThreadGenerator` that scales the child into its slot
+   * while the surrounding flex layout reflows; without one, it behaves
+   * like {@link Node.insert} and returns `this`.
+   */
+  public override insert(node: ComponentChildren, index?: number): this;
+  public override insert(
+    node: ComponentChildren,
+    index: number,
+    duration: number,
+    timing?: TimingFunction,
+    animate?: LayoutAnimateCallback,
+  ): ThreadGenerator;
+  public override insert(
+    node: ComponentChildren,
+    index = 0,
+    duration?: number,
+    timing: TimingFunction = easeInOutCubic,
+    animate?: LayoutAnimateCallback,
+  ): this | ThreadGenerator {
+    if (duration === undefined) {
+      return super.insert(node, index);
+    }
+    return this.animateInsert(node, index, duration, timing, animate);
+  }
 
-    const wrap = this.textWrap();
-    if (typeof wrap === 'boolean') {
-      this.element.style.whiteSpace = wrap ? 'normal' : 'nowrap';
-    } else {
-      this.element.style.whiteSpace = wrap;
+  /**
+   * Remove this node from its parent. With a `duration` and a `Layout`
+   * parent, the call returns a `ThreadGenerator` that scales the node
+   * out as its slot collapses; without one (or with a non-Layout
+   * parent), it behaves like {@link Node.remove} and returns `this`.
+   */
+  public override remove(): this;
+  public override remove(
+    duration: number,
+    timing?: TimingFunction,
+    animate?: LayoutAnimateCallback,
+  ): ThreadGenerator;
+  public override remove(
+    duration?: number,
+    timing: TimingFunction = easeInOutCubic,
+    animate?: LayoutAnimateCallback,
+  ): this | ThreadGenerator {
+    if (duration === undefined) {
+      return super.remove();
+    }
+    const parent = this.parent();
+    if (parent instanceof Layout) {
+      return parent.animateRemove(this, duration, timing, animate);
+    }
+    super.remove();
+    return (function* (): ThreadGenerator {})();
+  }
+
+  @threadable()
+  protected *animateInsert(
+    node: ComponentChildren,
+    index: number,
+    duration: number,
+    timing: TimingFunction = easeInOutCubic,
+    animate?: LayoutAnimateCallback,
+  ): ThreadGenerator {
+    const nodes = Array.isArray(node) ? node : [node];
+    const layoutNodes: Layout[] = [];
+    for (const n of nodes) {
+      if (n instanceof Layout) layoutNodes.push(n);
+    }
+
+    if (layoutNodes.length !== nodes.length) {
+      super.insert(node, index);
+      return;
+    }
+
+    const slots = layoutNodes.map(userNode => {
+      const natural = userNode.size();
+      const wrapper = new Layout({
+        layout: true,
+        width: natural.x,
+        height: natural.y,
+        scale: animate ? 1 : 0,
+      });
+      wrapper.add(userNode);
+      return {userNode, wrapper};
+    });
+
+    const oldSize = new Vector2(this.size());
+    const flexChildren = this.applyLayout();
+    const preWorld = new Map<Layout, Vector2>();
+    for (const child of flexChildren) {
+      preWorld.set(child, child.position.abs());
+    }
+
+    slots.forEach((slot, i) => {
+      const insertIndex = Number.isFinite(index) ? index + i : Infinity;
+      this.insert(slot.wrapper, insertIndex);
+    });
+    this.requestLayoutUpdate();
+
+    const newSize = new Vector2(this.size());
+    const postWorld = new Map<Layout, Vector2>();
+    for (const child of flexChildren) {
+      postWorld.set(child, child.position.abs());
+    }
+
+    // Pin each wrapper at its flex-resolved position before freeze. Once
+    // `layoutChildren` is off, the wrappers become layout roots and `position`
+    // would otherwise fall back to the raw signal default.
+    for (const slot of slots) {
+      slot.wrapper.position.abs(slot.wrapper.position.abs());
+    }
+
+    const animationTasks = slots.map(slot =>
+      animate
+        ? animate(slot.userNode, duration, timing)
+        : slot.wrapper.scale(1, duration, timing),
+    );
+
+    try {
+      yield* this.runFreezeThawTween(
+        flexChildren,
+        preWorld,
+        postWorld,
+        oldSize,
+        newSize,
+        duration,
+        timing,
+        Vector2.lerp,
+        animationTasks,
+      );
+    } finally {
+      for (const slot of slots) {
+        const wrapperIndex = this.children().indexOf(slot.wrapper);
+        if (wrapperIndex >= 0) {
+          this.insert(slot.userNode, wrapperIndex);
+          slot.wrapper.remove();
+        }
+      }
+    }
+  }
+
+  @threadable()
+  protected *animateRemove(
+    node: Layout,
+    duration: number,
+    timing: TimingFunction = easeInOutCubic,
+    animate?: LayoutAnimateCallback,
+  ): ThreadGenerator {
+    const oldSize = new Vector2(this.size());
+    const flexChildren = this.applyLayout().filter(c => c !== node);
+    const preWorld = new Map<Layout, Vector2>();
+    for (const child of flexChildren) {
+      preWorld.set(child, child.position.abs());
+    }
+
+    const natural = node.size();
+    const removalIndex = this.children().indexOf(node);
+    const wrapper = new Layout({
+      layout: true,
+      width: natural.x,
+      height: natural.y,
+    });
+    node.remove();
+    this.insert(wrapper, removalIndex);
+    wrapper.add(node);
+
+    // Pin at the flex-resolved position before pulling out of flex; otherwise
+    // `position` falls back to the raw signal default once `layoutSelf` is off.
+    wrapper.position.abs(wrapper.position.abs());
+    wrapper.layoutSelf(false);
+    this.requestLayoutUpdate();
+
+    const newSize = new Vector2(this.size());
+    const postWorld = new Map<Layout, Vector2>();
+    for (const child of flexChildren) {
+      postWorld.set(child, child.position.abs());
+    }
+
+    const animationTask = animate
+      ? animate(node, duration, timing)
+      : wrapper.scale(0, duration, timing);
+
+    try {
+      yield* this.runFreezeThawTween(
+        flexChildren,
+        preWorld,
+        postWorld,
+        oldSize,
+        newSize,
+        duration,
+        timing,
+        Vector2.lerp,
+        [animationTask],
+      );
+    } finally {
+      node.remove();
+      wrapper.remove();
+    }
+  }
+
+  /**
+   * Animate a batch of layout-property changes. Children tween from their
+   * pre-mutation positions to wherever the post-mutation layout puts them.
+   *
+   * @example
+   * ```tsx
+   * yield* rect().editLayout(0.3, n => {
+   *   n.direction('column');
+   *   n.alignItems('end');
+   * });
+   * ```
+   */
+  @threadable()
+  public *editLayout<TLayout extends Layout>(
+    this: TLayout,
+    duration: number,
+    mutator: (node: TLayout) => void,
+    timing: TimingFunction = easeInOutCubic,
+    interpolation: InterpolationFunction<Vector2> = Vector2.lerp,
+  ): ThreadGenerator {
+    const flexChildren = this.applyLayout();
+    const preWorld = new Map<Layout, Vector2>();
+    for (const child of flexChildren) {
+      preWorld.set(child, child.position.abs());
+    }
+    const oldSize = new Vector2(this.size());
+
+    mutator(this);
+    this.requestLayoutUpdate();
+    const postWorld = new Map<Layout, Vector2>();
+    for (const child of flexChildren) {
+      postWorld.set(child, child.position.abs());
+    }
+    const newSize = new Vector2(this.size());
+
+    yield* this.runFreezeThawTween(
+      flexChildren,
+      preWorld,
+      postWorld,
+      oldSize,
+      newSize,
+      duration,
+      timing,
+      interpolation,
+    );
+  }
+
+  @threadable()
+  protected *runFreezeThawTween(
+    flexChildren: Layout[],
+    preWorld: Map<Layout, Vector2>,
+    postWorld: Map<Layout, Vector2>,
+    oldSize: Vector2,
+    newSize: Vector2,
+    duration: number,
+    timing: TimingFunction,
+    interpolation: InterpolationFunction<Vector2>,
+    additionalTasks: ThreadGenerator[] = [],
+  ): ThreadGenerator {
+    for (const child of flexChildren) {
+      const pre = preWorld.get(child);
+      if (pre) child.position.abs(pre);
+    }
+    const savedLayoutChildren = this.layoutChildren.context.raw();
+    const savedWidth = this.width.context.raw();
+    const savedHeight = this.height.context.raw();
+    this.layoutChildren(false);
+    this.lockLayout();
+    this.size(oldSize);
+
+    try {
+      yield* all(
+        tween(duration, t => {
+          const progress = timing(t);
+          this.size(interpolation(oldSize, newSize, progress));
+          for (const child of flexChildren) {
+            const pre = preWorld.get(child);
+            const post = postWorld.get(child);
+            if (pre && post) {
+              child.position.abs(interpolation(pre, post, progress));
+            }
+          }
+        }),
+        ...additionalTasks,
+      );
+    } finally {
+      this.releaseLayout();
+      if (savedWidth === undefined) {
+        this.width.context.reset();
+      } else {
+        this.width.context.setter(savedWidth);
+      }
+      if (savedHeight === undefined) {
+        this.height.context.reset();
+      } else {
+        this.height.context.setter(savedHeight);
+      }
+      if (savedLayoutChildren === undefined) {
+        this.layoutChildren.context.reset();
+      } else {
+        this.layoutChildren.context.setter(savedLayoutChildren);
+      }
+    }
+  }
+
+  /**
+   * Snap each laid-out child to its current visual position, then disable
+   * `layoutChildren`. Pair with {@link thawLayout} to bring children back
+   * under flex.
+   */
+  public freezeLayout(): void {
+    for (const child of this.applyLayout()) {
+      child.position(child.computedPosition());
+    }
+    this.layoutChildren(false);
+  }
+
+  /**
+   * Re-enable `layoutChildren` and animate each child from its manual
+   * position to wherever the flex layout now places it.
+   */
+  @threadable()
+  public *thawLayout(
+    duration: number,
+    timing: TimingFunction = easeInOutCubic,
+    interpolation: InterpolationFunction<Vector2> = Vector2.lerp,
+  ): ThreadGenerator {
+    const children = this.applyLayout();
+    const pre = snapshotPositions(children);
+    this.layoutChildren(true);
+    this.requestLayoutUpdate();
+    const post = snapshotPositions(children);
+    const inverted = invertPositions(pre, post);
+    yield* playInverted(inverted, duration, timing, interpolation);
+  }
+
+  /**
+   * Move this Layout into a new parent, smoothly shrinking the slot in
+   * the old parent and growing the slot in the new parent.
+   */
+  @threadable()
+  public override *transitionTo(
+    newParent: Node,
+    indexOrDuration: number,
+    durationOrTiming?: number | TimingFunction,
+    timing: TimingFunction = easeInOutCubic,
+    interpolation: InterpolationFunction<Vector2> = Vector2.lerp,
+  ): ThreadGenerator {
+    yield* runTransitionTo(
+      this,
+      newParent,
+      indexOrDuration,
+      durationOrTiming,
+      timing,
+      interpolation,
+    );
+  }
+
+  /**
+   * Cross-fade this Layout into another node. Detaches from the parent's
+   * flex layout for the duration of the tween so the slot collapses
+   * immediately and siblings glide via FLIP.
+   */
+  @threadable()
+  public override *morphTo(
+    other: Node,
+    duration: number,
+    timing: TimingFunction = easeInOutCubic,
+    interpolation: InterpolationFunction<Vector2> = Vector2.lerp,
+  ): ThreadGenerator {
+    const startWorld = this.position.abs();
+    const siblings = affectedLayouts(this).filter(n => n !== this);
+    const pre = snapshotPositions(siblings);
+
+    const savedLayoutSelf = this.layoutSelf.context.raw();
+    this.layoutSelf(false);
+    if (this.parent()) {
+      this.position.abs(startWorld);
+    }
+
+    const post = snapshotPositions(siblings);
+    const inverted = invertPositions(pre, post);
+
+    try {
+      yield* all(
+        super.morphTo(other, duration, timing, interpolation),
+        playInverted(inverted, duration, timing, interpolation),
+      );
+    } finally {
+      if (savedLayoutSelf === undefined) {
+        this.layoutSelf.context.reset();
+      } else {
+        this.layoutSelf.context.setter(savedLayoutSelf);
+      }
     }
   }
 
   public override dispose() {
-    super.dispose();
-    this.sizeLockCounter?.context.dispose();
-    if (this.element) {
-      this.element.remove();
-      this.element.innerHTML = '';
+    if (this.isDisposed) {
+      return;
     }
-    this.element = null as unknown as HTMLElement;
-    this.styles = null as unknown as CSSStyleDeclaration;
+    super.dispose();
+    this.layoutLockCounter?.context.dispose();
+    if (this.yogaNode) {
+      this.yogaNode.free();
+    }
   }
 
   public override hit(position: Vector2): Node | null {
@@ -1094,8 +1788,5 @@ function originSignal(origin: Origin): PropertyDecorator {
 }
 
 addInitializer<Layout>(Layout.prototype, instance => {
-  instance.element = document.createElement('div');
-  instance.element.style.display = 'flex';
-  instance.element.style.boxSizing = 'border-box';
-  instance.styles = getComputedStyle(instance.element);
+  instance.yogaNode = createYogaNode();
 });
