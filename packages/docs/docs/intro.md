@@ -16,7 +16,8 @@ traditional video editing software.
 
 Aside from providing the preview, the editor allows you to edit certain aspects
 of the animation which could otherwise be tedious. You can learn more about this
-functionality in the [time events](/docs/time-events) section.
+functionality in the [time events](/docs/time-events) section. You can also edit
+project files directly from the UI using the [in-editor IDE](/docs/ide).
 
 Canvas Commons is a free and open source project. You can help making it better
 by reporting bugs, proposing new features, or contributing to the codebase. If

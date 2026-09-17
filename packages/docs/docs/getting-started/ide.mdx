@@ -1,0 +1,38 @@
+---
+sidebar_position: 2
+slug: /ide
+---
+
+# In-editor IDE
+
+The editor includes a full-height **IDE** panel on the right side of the window.
+Open it with the code icon in the navigation rail.
+
+## Files
+
+The **Files** tab shows a project file tree rooted at your Vite project
+directory. You can:
+
+- Open text sources (TypeScript, JSON, Markdown, CSS, and similar) in a
+  CodeMirror editor
+- Preview images and videos inline
+- Drag and drop files from your OS into the tree to import them
+- Create, rename, and delete files and folders
+
+Saving a scene file (`Ctrl`/`Cmd`+`S`) writes it to disk. Vite's hot module
+replacement updates the animation preview automatically.
+
+## Terminal
+
+The **Terminal** tab opens an interactive shell in the project directory using
+a real PTY (`node-pty`). Use it to run package scripts, install dependencies, or
+inspect the project without leaving the editor.
+
+:::note
+
+`node-pty` is an optional native dependency of `@canvas-commons/vite-plugin`.
+If it fails to install (missing build tools), the Terminal tab shows an error
+instead of a shell. On Linux/macOS you typically need Python and a C/C++
+toolchain available for `node-gyp`.
+
+:::

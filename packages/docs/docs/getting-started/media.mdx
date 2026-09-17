@@ -250,6 +250,59 @@ export default makeScene2D(function* (view) {
 });
 ```
 
+### Frame, zoom, trim, and speed
+
+The [`Video`](/api/2d/components/Video) component supports cropping and zooming
+source regions, skipping portions of the timeline, and changing playback speed
+for specific ranges.
+
+- `frame` — normalized source crop (`{x, y, width, height}` from 0 to 1)
+- `zoom` — normalized focus region within the frame, scaled to fill the node
+- `skipRegions` — source-time ranges to jump over during playback
+- `speedRegions` — source-time ranges that play at a custom rate
+
+```tsx
+view.add(
+  <Video
+    src={exampleMp4}
+    width={960}
+    height={540}
+    muted
+    frame={{x: 0, y: 0, width: 1, height: 1}}
+    zoom={{x: 0.2, y: 0.1, width: 0.6, height: 0.8}}
+    skipRegions={[{start: 1, end: 2}]}
+    speedRegions={[{start: 2, end: 4, rate: 2}]}
+  />,
+);
+```
+
+Pair a muted [`Video`](/api/2d/components/Video) with an [`Audio`](/api/2d/components/Audio)
+node when you need full control over the soundtrack:
+
+```tsx
+import {all, createRef} from '@canvas-commons/core';
+import {Audio, Video, makeScene2D} from '@canvas-commons/2d';
+
+export default makeScene2D(function* (view) {
+  const videoRef = createRef<Video>();
+  const audioRef = createRef<Audio>();
+
+  view.add(
+    <>
+      <Video
+        ref={videoRef}
+        src={exampleMp4}
+        muted
+        skipRegions={[{start: 1, end: 2}]}
+      />
+      <Audio ref={audioRef} src={exampleMp4} skipRegions={[{start: 1, end: 2}]} />
+    </>,
+  );
+
+  yield* all(videoRef().play(), audioRef().play());
+});
+```
+
 ### Supported Formats
 
 A list of supported file formats can be found
