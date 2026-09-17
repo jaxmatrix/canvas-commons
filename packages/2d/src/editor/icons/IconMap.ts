@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import {FunctionComponent} from 'preact';
+import {AudioIcon} from './AudioIcon';
 import {CircleIcon} from './CircleIcon';
 import {CodeIcon} from './CodeIcon';
 import {CurveIcon} from './CurveIcon';
@@ -17,6 +18,7 @@ import {VideoIcon} from './VideoIcon';
 import {View2DIcon} from './View2DIcon';
 
 export const IconMap: Record<string, FunctionComponent> = {
+  Audio: AudioIcon,
   Circle: CircleIcon,
   Code: CodeIcon,
   Curve: CurveIcon,

@@ -7,7 +7,7 @@ import {
   easeInOutCubic,
   tween,
 } from '@canvas-commons/core';
-import {Layout} from '../components/Layout';
+import type {Layout} from '../components/Layout';
 import {Node} from '../components/Node';
 
 /**
@@ -26,6 +26,10 @@ export interface InvertedNode {
   channel: 'translate' | 'position';
   from: Vector2;
   to: Vector2;
+}
+
+function isLayout(node: Node): node is Layout {
+  return 'translate' in node;
 }
 
 /**
@@ -91,7 +95,7 @@ export function invertPositions(
     const delta = preLocal.sub(postLocal);
     if (delta.exactlyEquals(Vector2.zero)) continue;
 
-    if (node instanceof Layout) {
+    if (isLayout(node)) {
       inverted.push({
         node,
         channel: 'translate',
@@ -128,7 +132,7 @@ export function* playInverted(
   if (inverted.length === 0) return;
 
   for (const item of inverted) {
-    if (item.channel === 'translate' && item.node instanceof Layout) {
+    if (item.channel === 'translate' && isLayout(item.node)) {
       item.node.translate(item.from);
     } else if (item.channel === 'position') {
       item.node.position(item.from);
@@ -141,7 +145,7 @@ export function* playInverted(
         tween(duration, t => {
           const progress = timing(t);
           const value = interpolation(item.from, item.to, progress);
-          if (item.channel === 'translate' && item.node instanceof Layout) {
+          if (item.channel === 'translate' && isLayout(item.node)) {
             item.node.translate(value);
           } else if (item.channel === 'position') {
             item.node.position(value);
@@ -151,7 +155,7 @@ export function* playInverted(
     );
   } finally {
     for (const item of inverted) {
-      if (item.channel === 'translate' && item.node instanceof Layout) {
+      if (item.channel === 'translate' && isLayout(item.node)) {
         item.node.translate(item.to);
       } else if (item.channel === 'position') {
         item.node.position(item.to);

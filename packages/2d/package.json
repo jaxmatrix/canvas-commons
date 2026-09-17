@@ -74,6 +74,7 @@
     "@lezer/highlight": "^1.2.0",
     "escape-string-regexp": "^5.0.0",
     "mathjax-full": "^3.2.2",
+    "mediabunny": "^1.46.0",
     "parse-svg-path": "^0.1.2",
     "roughjs": "^4.6.6",
     "yoga-layout": "^3.2.1"

@@ -1,18 +1,30 @@
 import {
   BBox,
   DependencyContext,
+  MediaSkipRegion,
+  MediaSpeedRegion,
+  MediaTimeMapper,
+  MediaZoomRegion,
   PlaybackState,
   SerializedVector2,
   SignalValue,
   SimpleSignal,
   clamp,
   isReactive,
+  snapMediaTimeToPlayable,
   useLogger,
   useThread,
 } from '@canvas-commons/core';
 import {computed, initial, nodeName, signal} from '../decorators';
 import {DesiredLength} from '../partials';
-import {drawImage} from '../utils';
+import {
+  FULL_NORMALIZED_RECT,
+  NormalizedRect,
+  drawImage,
+  normalizeMediaRect,
+  resolveMediaSourceBBox,
+  zoomAtTime,
+} from '../utils';
 import {Rect, RectProps} from './Rect';
 import reactivePlaybackRate from './__logs__/reactive-playback-rate';
 
@@ -41,6 +53,30 @@ export interface VideoProps extends RectProps {
    * The starting time for this video in seconds.
    */
   time?: SignalValue<number>;
+  /**
+   * {@inheritDoc Video.frame}
+   */
+  frame?: NormalizedRect;
+  /**
+   * {@inheritDoc Video.zoom}
+   */
+  zoom?: NormalizedRect;
+  /**
+   * {@inheritDoc Video.skipRegions}
+   */
+  skipRegions?: MediaSkipRegion[];
+  /**
+   * {@inheritDoc Video.speedRegions}
+   */
+  speedRegions?: MediaSpeedRegion[];
+  /**
+   * {@inheritDoc Video.zoomRegions}
+   */
+  zoomRegions?: MediaZoomRegion[];
+  /**
+   * {@inheritDoc Video.muted}
+   */
+  muted?: SignalValue<boolean>;
   play?: boolean;
 }
 
@@ -106,6 +142,60 @@ export class Video extends Rect {
   @signal()
   declare public readonly playbackRate: SimpleSignal<number, this>;
 
+  /**
+   * The normalized source region used as the outer crop of the video.
+   *
+   * @defaultValue `{x: 0, y: 0, width: 1, height: 1}`
+   */
+  @initial(FULL_NORMALIZED_RECT)
+  @signal()
+  declare public readonly frame: SimpleSignal<NormalizedRect, this>;
+
+  /**
+   * The normalized source region that should fill the node's frame.
+   *
+   * @remarks
+   * The zoom region is intersected with {@link Video.frame} before being drawn.
+   *
+   * @defaultValue {@link Video.frame}
+   */
+  @initial(FULL_NORMALIZED_RECT)
+  @signal()
+  declare public readonly zoom: SimpleSignal<NormalizedRect, this>;
+
+  /**
+   * Source-time ranges that should be skipped during playback.
+   */
+  @initial([])
+  @signal()
+  declare public readonly skipRegions: SimpleSignal<MediaSkipRegion[], this>;
+
+  /**
+   * Source-time ranges that should play at custom rates.
+   */
+  @initial([])
+  @signal()
+  declare public readonly speedRegions: SimpleSignal<MediaSpeedRegion[], this>;
+
+  /**
+   * Source-time ranges that should use a custom zoom focus.
+   *
+   * @remarks
+   * Outside these ranges, {@link Video.zoom} is used.
+   */
+  @initial([])
+  @signal()
+  declare public readonly zoomRegions: SimpleSignal<MediaZoomRegion[], this>;
+
+  /**
+   * Whether the video's audio track should be muted.
+   *
+   * @defaultValue false
+   */
+  @initial(false)
+  @signal()
+  declare public readonly muted: SimpleSignal<boolean, this>;
+
   @initial(0)
   @signal()
   declare protected readonly time: SimpleSignal<number, this>;
@@ -116,11 +206,19 @@ export class Video extends Rect {
 
   private lastTime = -1;
 
-  public constructor({play, ...props}: VideoProps) {
-    super(props);
+  public constructor({play, frame, zoom, ...props}: VideoProps) {
+    super({
+      ...props,
+      frame: normalizeMediaRect(frame),
+      zoom: normalizeMediaRect(zoom ?? frame),
+    });
     if (play) {
       this.play();
     }
+  }
+
+  protected activeZoom(): NormalizedRect {
+    return zoomAtTime(this.zoom(), this.zoomRegions(), this.getCurrentTime());
   }
 
   /**
@@ -142,13 +240,23 @@ export class Video extends Rect {
     return this.video().duration;
   }
 
+  public getTimelineDuration(): number {
+    return this.mapper().timelineDuration;
+  }
+
   protected override desiredSize(): SerializedVector2<DesiredLength> {
     const custom = super.desiredSize();
     if (custom.x === null && custom.y === null) {
-      const image = this.video();
+      const video = this.video();
+      const source = resolveMediaSourceBBox(
+        this.frame(),
+        this.activeZoom(),
+        video.videoWidth,
+        video.videoHeight,
+      );
       return {
-        x: image.videoWidth,
-        y: image.videoHeight,
+        x: source.width,
+        y: source.height,
       };
     }
 
@@ -164,7 +272,25 @@ export class Video extends Rect {
    */
   @computed()
   public override completion(): number {
-    return this.clampTime(this.time()) / this.video().duration;
+    const mapper = this.mapper();
+    const duration = mapper.timelineDuration;
+    if (duration <= 0) {
+      return 0;
+    }
+
+    const timeline = mapper.mediaToTimeline(this.getCurrentTime());
+    return timeline / duration;
+  }
+
+  @computed()
+  protected mapper(): MediaTimeMapper {
+    const duration = this.video().duration;
+    return new MediaTimeMapper(
+      Number.isFinite(duration) ? duration : 0,
+      this.skipRegions(),
+      this.speedRegions(),
+      this.playbackRate(),
+    );
   }
 
   @computed()
@@ -176,7 +302,10 @@ export class Video extends Rect {
       video = document.createElement('video');
       video.src = src;
       Video.pool[key] = video;
+      this.lastTime = -1;
     }
+
+    video.muted = this.muted();
 
     if (video.readyState < 2) {
       DependencyContext.collectPromise(
@@ -197,8 +326,9 @@ export class Video extends Rect {
   protected seekedVideo(): HTMLVideoElement {
     const video = this.video();
     const time = this.clampTime(this.time());
+    const activeRate = this.mapper().getActiveRateAtMediaTime(time);
 
-    video.playbackRate = this.playbackRate();
+    video.playbackRate = activeRate;
 
     if (!video.paused) {
       video.pause();
@@ -217,15 +347,15 @@ export class Video extends Rect {
   protected fastSeekedVideo(): HTMLVideoElement {
     const video = this.video();
     const time = this.clampTime(this.time());
+    const activeRate = this.mapper().getActiveRateAtMediaTime(time);
 
-    video.playbackRate = this.playbackRate();
+    video.playbackRate = activeRate;
 
     if (this.lastTime === time) {
       return video;
     }
 
-    const playing =
-      this.playing() && time < video.duration && video.playbackRate > 0;
+    const playing = this.playing() && time < video.duration && activeRate > 0;
     if (playing) {
       if (video.paused) {
         DependencyContext.collectPromise(video.play());
@@ -256,14 +386,20 @@ export class Video extends Rect {
           ? this.fastSeekedVideo()
           : this.seekedVideo();
 
-      const box = BBox.fromSizeCentered(this.computedSize());
+      const source = resolveMediaSourceBBox(
+        this.frame(),
+        this.activeZoom(),
+        video.videoWidth,
+        video.videoHeight,
+      );
+      const dest = BBox.fromSizeCentered(this.computedSize());
       context.save();
       context.clip(this.getPath());
       if (alpha < 1) {
         context.globalAlpha *= alpha;
       }
       context.imageSmoothingEnabled = this.smoothing();
-      drawImage(context, video, box);
+      drawImage(context, video, source, dest);
       context.restore();
     }
 
@@ -277,7 +413,13 @@ export class Video extends Rect {
   protected override applyFlex() {
     super.applyFlex();
     const video = this.video();
-    const ratio = this.ratio() ?? video.videoWidth / video.videoHeight;
+    const source = resolveMediaSourceBBox(
+      this.frame(),
+      this.activeZoom(),
+      video.videoWidth,
+      video.videoHeight,
+    );
+    const ratio = this.ratio() ?? source.width / source.height;
     this.yogaNode.setAspectRatio(ratio);
   }
 
@@ -319,21 +461,14 @@ export class Video extends Rect {
       if (value === 0) {
         this.pause();
       } else {
-        const time = useThread().time;
-        const start = time();
-        const offset = this.time();
-        this.time(() => this.clampTime(offset + (time() - start) * value));
+        this.bindPlayingTime();
       }
     }
   }
 
   public play() {
-    const time = useThread().time;
-    const start = time();
-    const offset = this.time();
-    const playbackRate = this.playbackRate();
     this.playing(true);
-    this.time(() => this.clampTime(offset + (time() - start) * playbackRate));
+    this.bindPlayingTime();
   }
 
   public pause() {
@@ -354,14 +489,48 @@ export class Video extends Rect {
 
   public clampTime(time: number): number {
     const duration = this.video().duration;
-    if (this.loop()) {
-      time %= duration;
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return Math.max(0, time);
     }
-    return clamp(0, duration, time);
+
+    const snapped = snapMediaTimeToPlayable(time, this.skipRegions(), duration);
+
+    if (this.loop()) {
+      return snapped % duration;
+    }
+
+    return clamp(0, duration, snapped);
   }
 
   protected override collectAsyncResources() {
     super.collectAsyncResources();
     this.seekedVideo();
+  }
+
+  private bindPlayingTime() {
+    const threadTime = useThread().time;
+    const start = threadTime();
+    // Capture the current media offset without resolving video duration yet —
+    // the element may still be loading during scene recalculation.
+    const mediaOffset = this.time();
+
+    this.time(() => {
+      const mapper = this.mapper();
+      let timeline =
+        mapper.mediaToTimeline(mediaOffset) + (threadTime() - start);
+      const timelineDuration = mapper.timelineDuration;
+
+      if (this.loop() && timelineDuration > 0) {
+        timeline =
+          ((timeline % timelineDuration) + timelineDuration) % timelineDuration;
+      }
+
+      const {mediaTime} = mapper.timelineToMedia(timeline);
+      const duration = this.video().duration;
+      if (!Number.isFinite(duration) || duration <= 0) {
+        return mediaTime;
+      }
+      return clamp(0, duration, mediaTime);
+    });
   }
 }
