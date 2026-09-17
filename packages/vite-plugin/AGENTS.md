@@ -13,11 +13,12 @@ See the [root `AGENTS.md`](../../AGENTS.md) for repo-wide standards.
 ```bash
 pnpm vite-plugin:dev     # tsdown --watch
 pnpm vite-plugin:build   # tsdown, outputs to lib/
+pnpm --filter @canvas-commons/vite-plugin run test
 pnpm --filter @canvas-commons/vite-plugin run lint:pkg
 ```
 
-No test script. This package is exercised through `pnpm template:dev`,
-`pnpm examples:dev`, and the e2e suite.
+Unit tests cover path sandbox helpers. End-to-end behavior is exercised through
+`pnpm template:dev`, `pnpm examples:dev`, and the e2e suite.
 
 ## Where things live
 
@@ -26,6 +27,9 @@ Each partial in `partials/` is one Vite plugin; the factory wires them together.
 
 Peer dependency: `vite` `^4 || ^5 || ^7 || ^8`. Bumping the range is a
 breaking-ish change for downstream consumers and needs a changeset.
+
+Optional dependency: `node-pty` powers the in-editor terminal. It requires
+native build tools; if it fails to load, the Terminal tab reports an error.
 
 ## Traps
 
@@ -40,6 +44,10 @@ the default points at `@canvas-commons/editor`.
 **`buildForEditor: true` is for the in-repo template setup only.** Downstream
 projects shouldn't set it; they consume a prebuilt editor.
 
+**FS and terminal APIs are sandboxed to `config.root`.** Never resolve
+user-supplied paths without `resolveSandboxedPath` / `resolveSandboxedRealPath`.
+The IDE UI must not invent alternate write endpoints that skip the sandbox.
+
 ## Don't touch without thinking
 
 - The Vite plugin list and ordering in `src/main.ts`. Partials assume an order.
@@ -47,3 +55,5 @@ projects shouldn't set it; they consume a prebuilt editor.
   import them indirectly via the JSX runtime and code transforms.
 - The peer-dep version range in `package.json`. Widening it without testing
   means downstream breakage.
+- The `/__canvas-commons-fs` routes and `/__canvas-commons-terminal` WebSocket.
+  The editor IDE depends on those exact paths (not Vite HMR custom events).

@@ -11,6 +11,7 @@ allowBuilds:
   core-js-pure: false
   esbuild: true
   ffmpeg-ffprobe-static: true
+  node-pty: true
   nx: true
 
 catalog:

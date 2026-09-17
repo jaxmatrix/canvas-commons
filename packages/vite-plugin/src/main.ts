@@ -6,10 +6,12 @@ import {
   corsProxyPlugin,
   editorPlugin,
   exporterPlugin,
+  fsPlugin,
   metaPlugin,
   projectsPlugin,
   scenesPlugin,
   settingsPlugin,
+  terminalPlugin,
   webglPlugin,
 } from './partials';
 import {PLUGIN_OPTIONS, PluginConfig, PluginOptions, isPlugin} from './plugins';
@@ -136,5 +138,7 @@ export default ({
     assetsPlugin({bufferedAssets}),
     webglPlugin(),
     corsProxyPlugin(proxy),
+    fsPlugin(),
+    terminalPlugin(),
   ];
 };
