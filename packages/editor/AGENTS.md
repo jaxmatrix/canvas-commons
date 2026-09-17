@@ -52,6 +52,11 @@ outside `@canvas-commons/*` and use `tabs`, `provider`, `previewOverlay`,
 `experimentalLog` unless the project sets `experimentalFeatures: true`. See
 `main.tsx` for the exact list.
 
+**The IDE panel talks to the Vite plugin over HTTP/WS.** File tree and save
+operations hit `/__canvas-commons-fs/*`. The Terminal tab uses a dedicated
+WebSocket at `/__canvas-commons-terminal` (not Vite HMR) and needs `node-pty`
+available on the server. Don't reinvent those bridges in editor-only code.
+
 ## Don't touch without thinking
 
 - `src/main.tsx`: `editor(project)` and `index(projects)` are the entry points
@@ -61,3 +66,5 @@ outside `@canvas-commons/*` and use `tabs`, `provider`, `previewOverlay`,
   against it.
 - `storedSignal.ts`: persists state under `${projectName}-${id}` keys. Changing
   the key shape will silently lose users' editor state.
+- The `ide` panel signal in `contexts/panels.tsx` and the `main-ide`
+  `ResizeableLayout` in `Editor.tsx`: they own the full-height right column.

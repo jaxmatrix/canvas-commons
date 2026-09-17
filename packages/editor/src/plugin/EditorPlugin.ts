@@ -123,4 +123,13 @@ export interface EditorPlugin extends Plugin {
    * Configuration for custom shortcuts used in the editor.
    */
   shortcuts?: ShortcutConfig<string>[];
+  /**
+   * Component displayed in the media editor bottom panel.
+   */
+  mediaEditor?: FunctionComponent;
+  /**
+   * Component that replaces the main scene preview while the media editor
+   * rail is open.
+   */
+  mediaViewport?: FunctionComponent;
 }

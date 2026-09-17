@@ -14,6 +14,7 @@ interface Panel {
 interface Panels {
   sidebar: Panel;
   bottom: Panel;
+  ide: Panel;
   tabs: PluginTabConfig[];
   inspectors: PluginInspectorConfig[];
 }
@@ -59,12 +60,14 @@ export function PanelsProvider({children}: {children: ComponentChildren}) {
 
   const sidebar = panelSignal(EditorPanel.VideoSettings, 'sidebar', options);
   const bottom = panelSignal(EditorPanel.Timeline, 'bottom-panel', options);
+  const ide = panelSignal(EditorPanel.Ide, 'ide-panel', options, true);
 
   return (
     <PanelsContext.Provider
       value={{
         sidebar,
         bottom,
+        ide,
         tabs,
         inspectors,
       }}
@@ -74,11 +77,16 @@ export function PanelsProvider({children}: {children: ComponentChildren}) {
   );
 }
 
-function panelSignal(initial: string, id: string, options: string[]): Panel {
+function panelSignal(
+  initial: string,
+  id: string,
+  options: string[],
+  defaultHidden = false,
+): Panel {
   const stored = storedSignal<string>(initial, id, value =>
     options.includes(value) ? value : initial,
   );
-  const isHidden = storedSignal(stored.value === null, `${id}-hidden`);
+  const isHidden = storedSignal(defaultHidden, `${id}-hidden`);
   const current = computed(() => (isHidden.value ? null : stored.value));
   return {
     current,

@@ -24,10 +24,6 @@
   flex-grow: 0;
   flex-shrink: 0;
   overflow: hidden;
-
-  .root.hidden > & {
-    flex-shrink: 1;
-  }
 }
 
 .right {
@@ -61,13 +57,6 @@
     background-color: var(--theme) !important;
   }
 
-  .root.hidden > & {
-    margin-right: -9px;
-    &::before {
-      background-color: transparent;
-    }
-  }
-
   .root.vertical > & {
     cursor: ns-resize;
     width: auto;
@@ -75,8 +64,68 @@
     padding: 7px 0;
     margin: -7px 0;
   }
+}
 
-  .root.vertical.hidden > & {
-    margin-top: -9px;
+// Collapse the start pane (sidebar) when hidden.
+.root.hidden:not(.inverse) {
+  > .left {
+    flex: 0 0 0;
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    overflow: hidden;
+  }
+
+  > .right {
+    flex-grow: 1;
+  }
+
+  > .separator {
+    display: none;
+  }
+
+  &.vertical > .left {
+    width: auto;
+    max-width: none;
+    height: 0;
+    min-height: 0;
+    max-height: 0;
+  }
+}
+
+// Collapse the end pane (IDE / timeline) when hidden.
+.root.hidden.inverse {
+  > .left {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+  }
+
+  > .right {
+    flex: 0 0 0;
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    overflow: hidden;
+  }
+
+  > .separator {
+    display: none;
+  }
+
+  &.vertical > .left {
+    width: auto;
+    max-width: none;
+    height: auto;
+    max-height: none;
+  }
+
+  &.vertical > .right {
+    width: auto;
+    max-width: none;
+    height: 0;
+    min-height: 0;
+    max-height: 0;
   }
 }

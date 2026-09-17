@@ -4,6 +4,8 @@ export enum EditorPanel {
   Console = 'console-panel',
   Settings = 'settings-panel',
   Timeline = 'timeline-panel',
+  MediaEditor = 'media-editor-panel',
+  Ide = 'ide-panel',
 }
 
 export function isEditorPanel(value: string): value is EditorPanel {

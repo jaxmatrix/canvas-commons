@@ -8,6 +8,7 @@ import {
 } from '../../contexts/shortcuts';
 import {useDuration, useRendererState} from '../../hooks';
 import {formatDuration} from '../../utils';
+import {MediaViewport, useMediaViewportActive} from '../media';
 import {
   PlaybackControls,
   PlaybackProgress,
@@ -31,31 +32,36 @@ export function Viewport() {
 function EditorViewport() {
   const shortcutRef = useSurfaceShortcuts<HTMLDivElement>(VIEWPORT_SHORTCUTS);
   const duration = useDuration();
+  const mediaViewportActive = useMediaViewportActive();
 
   return (
     <div ref={shortcutRef} className={styles.root}>
-      <EditorPreview />
-      <PlaybackProgress />
-      <div className={styles.playback}>
-        <CurrentTime
-          render={time => (
-            <Timestamp
-              className={styles.time}
-              title="Current time"
-              frameTitle="Current frame"
-              frame={time}
+      {mediaViewportActive ? <MediaViewport /> : <EditorPreview />}
+      {!mediaViewportActive && (
+        <>
+          <PlaybackProgress />
+          <div className={styles.playback}>
+            <CurrentTime
+              render={time => (
+                <Timestamp
+                  className={styles.time}
+                  title="Current time"
+                  frameTitle="Current frame"
+                  frame={time}
+                />
+              )}
             />
-          )}
-        />
-        <PlaybackControls />
-        <Timestamp
-          reverse
-          className={styles.duration}
-          title="Duration"
-          frameTitle="Duration in frames"
-          frame={duration}
-        />
-      </div>
+            <PlaybackControls />
+            <Timestamp
+              reverse
+              className={styles.duration}
+              title="Duration"
+              frameTitle="Duration in frames"
+              frame={duration}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }

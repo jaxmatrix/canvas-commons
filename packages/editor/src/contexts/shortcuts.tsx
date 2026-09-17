@@ -226,6 +226,17 @@ interface ShortcutsContextValue {
 
 const ShortcutsContext = createContext<ShortcutsContextValue>(null);
 
+function isEditableTarget(target: Element | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+    return true;
+  }
+  return target.isContentEditable;
+}
+
 export function ShortcutsProvider({children}: {children: ComponentChildren}) {
   const {plugins} = useApplication();
   const global = useSignal<string | null>(null);
@@ -311,7 +322,7 @@ export function ShortcutsProvider({children}: {children: ComponentChildren}) {
       return;
     }
 
-    if (document.activeElement.tagName === 'INPUT') {
+    if (isEditableTarget(document.activeElement)) {
       return;
     }
     if (surface.value && (await evaluate(event, surface.value))) {

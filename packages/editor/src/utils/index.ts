@@ -5,6 +5,8 @@ export * from './localStorage';
 export * from './LoggerManager';
 export * from './mouse';
 export * from './openOutputPath';
+export * from './projectFs';
 export * from './renderMarkdown';
 export * from './sourceMaps';
+export * from './terminalClient';
 export * from './withLoader';

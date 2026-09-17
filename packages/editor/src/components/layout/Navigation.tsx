@@ -7,7 +7,9 @@ import {shake} from '../animations';
 import {
   Bug,
   CanvasCommons,
+  Code,
   HourglassBottom,
+  MediaEditor,
   Movie,
   School,
   Science,
@@ -19,7 +21,7 @@ import styles from './Navigation.module.scss';
 
 export function Navigation() {
   const {project, logger} = useApplication();
-  const {tabs, sidebar, bottom} = usePanels();
+  const {tabs, sidebar, bottom, ide} = usePanels();
   const reducedMotion = useReducedMotion();
   const badge = useRef<HTMLDivElement>();
   const [errorCount, setErrorCount] = useState(logger.onErrorLogged.current);
@@ -77,6 +79,11 @@ export function Navigation() {
           <Settings />
         </Tab>
       </TabGroup>
+      <TabGroup tab={ide.current.value} setTab={tab => ide.set(tab)}>
+        <Tab title="IDE" id="ide-tab" tab={EditorPanel.Ide}>
+          <Code />
+        </Tab>
+      </TabGroup>
       <Space />
       {project.experimentalFeatures && (
         <TabLink
@@ -100,6 +107,13 @@ export function Navigation() {
       <TabGroup tab={bottom.current.value} setTab={tab => bottom.set(tab)}>
         <Tab title="Timeline" id="timeline-tab" tab={EditorPanel.Timeline}>
           <Movie />
+        </Tab>
+        <Tab
+          title="Media Editor"
+          id="media-editor-tab"
+          tab={EditorPanel.MediaEditor}
+        >
+          <MediaEditor />
         </Tab>
       </TabGroup>
     </Tabs>

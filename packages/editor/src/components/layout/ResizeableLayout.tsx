@@ -33,6 +33,7 @@ export function ResizeableLayout({
       ref={containerRef}
       className={clsx(styles.root, {
         [styles.vertical]: vertical,
+        [styles.inverse]: inverse,
         [styles.hidden]: hidden.value,
       })}
     >
