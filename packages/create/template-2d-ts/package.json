@@ -9,7 +9,9 @@
   },
   "dependencies": {
     "@canvas-commons/core": "*",
-    "@canvas-commons/2d": "*"
+    "@canvas-commons/2d": "*",
+    "@preact/signals": "^1.2.1",
+    "preact": "^10.19.2"
   },
   "devDependencies": {
     "@canvas-commons/editor": "*",

@@ -7,12 +7,15 @@
   "license": "MIT",
   "main": "src/project.ts",
   "scripts": {
+    "predev": "test -f ../vite-plugin/lib/index.js || pnpm --filter @canvas-commons/vite-plugin run build; test -f ../ffmpeg/lib/server/index.js || pnpm --filter @canvas-commons/ffmpeg run build",
     "dev": "vite",
     "build": "tsc && vite build"
   },
   "dependencies": {
     "@canvas-commons/core": "workspace:^",
-    "@canvas-commons/2d": "workspace:^"
+    "@canvas-commons/2d": "workspace:^",
+    "@preact/signals": "catalog:",
+    "preact": "catalog:"
   },
   "devDependencies": {
     "@canvas-commons/ffmpeg": "workspace:^",
