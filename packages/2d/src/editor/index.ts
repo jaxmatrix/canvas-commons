@@ -1,6 +1,9 @@
 import './index.css';
 
 import {makeEditorPlugin} from '@canvas-commons/editor';
+import {MediaEditorTabConfig} from './media/MediaEditorTabConfig';
+import {MediaEditorWorkspace} from './media/MediaEditorWorkspace';
+import {MediaPreview} from './media/MediaPreview';
 import {NodeInspectorConfig} from './NodeInspectorConfig';
 import {PreviewOverlayConfig} from './PreviewOverlayConfig';
 import {Provider} from './Provider';
@@ -12,7 +15,9 @@ export default makeEditorPlugin(() => {
     name: '@canvas-commons/2d',
     provider: Provider,
     previewOverlay: PreviewOverlayConfig,
-    tabs: [SceneGraphTabConfig],
+    tabs: [SceneGraphTabConfig, MediaEditorTabConfig],
+    mediaEditor: MediaEditorWorkspace,
+    mediaViewport: MediaPreview,
     inspectors: [NodeInspectorConfig],
     shortcuts: [SCENE_GRAPH_SHORTCUTS],
   };

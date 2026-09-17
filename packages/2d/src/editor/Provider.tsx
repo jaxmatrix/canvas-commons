@@ -10,6 +10,8 @@ import {
 } from '@preact/signals';
 import {ComponentChildren, createContext} from 'preact';
 import {useContext, useMemo} from 'preact/hooks';
+import {NodeInspectorKey} from './constants';
+import {MediaEditorProvider} from './media/MediaEditorContext';
 import {SignalSet} from './utils';
 
 export interface PluginState {
@@ -25,7 +27,7 @@ export interface PluginState {
 
 const PluginContext = createContext<PluginState | null>(null);
 
-export const NodeInspectorKey = '@canvas-commons/2d/node-inspector';
+export {NodeInspectorKey} from './constants';
 
 export function usePluginState() {
   return useContext(PluginContext)!;
@@ -106,6 +108,8 @@ export function Provider({children}: {children?: ComponentChildren}) {
   });
 
   return (
-    <PluginContext.Provider value={state}>{children}</PluginContext.Provider>
+    <PluginContext.Provider value={state}>
+      <MediaEditorProvider>{children}</MediaEditorProvider>
+    </PluginContext.Provider>
   );
 }

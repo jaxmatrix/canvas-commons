@@ -1,8 +1,8 @@
 # @canvas-commons/2d
 
 The 2D renderer and scene-authoring API. Provides the `Node` hierarchy (`Rect`,
-`Circle`, `Txt`, `Layout`, `Img`, `Video`, `Code`, ...), the custom JSX runtime
-that builds it, and `makeScene2D` for declaring a scene. Sits on top of
+`Circle`, `Txt`, `Layout`, `Img`, `Video`, `Audio`, `Code`, ...), the custom JSX
+runtime that builds it, and `makeScene2D` for declaring a scene. Sits on top of
 `@canvas-commons/core`. Most downstream animation code spends most of its time
 in this package.
 
